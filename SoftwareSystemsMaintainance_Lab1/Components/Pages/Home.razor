@@ -17,6 +17,17 @@
         Завантажте файл із відповідями для перегляду оцінки
         <InputFile accept=".json" OnChange="UploadAnswers" class="d-none" />
     </label>
+    
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="container mx-2 mt-3">
+            <div class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                <strong>Помилка!</strong> @errorMessage
+                <button type="button" class="btn-close" @onclick="() => errorMessage = null"></button>
+            </div>
+        </div>
+    }
 </div>
 
 
@@ -140,40 +151,80 @@
     
     private bool AreAllAnswered => answers != null && answers.All(a => a.Value.HasValue);
     
+    private string? errorMessage;
 
     private async Task UploadQuestions(InputFileChangeEventArgs args)
     {
-        var file = args.File;
+        errorMessage = null; 
 
-        using var stream = file.OpenReadStream();
-        using var reader = new StreamReader(stream);
+        try
+        {
+            var file = args.File;
 
-        var json = await reader.ReadToEndAsync();
+            using var stream = file.OpenReadStream();
+            using var reader = new StreamReader(stream);
 
-        questions = JsonSerializer.Deserialize<List<Question>>(json) ?? new List<Question>();
-        answers = questions.Select(q => new Answer(q.Id, q.Correct)).ToList();
+            var json = await reader.ReadToEndAsync();
         
-        Reset();
+            var loadedQuestions = JsonSerializer.Deserialize<List<Question>>(json);
+
+            // Check is file empty
+            if (loadedQuestions == null || !loadedQuestions.Any())
+            {
+                errorMessage = "Файл порожній або містить неправильний формат масиву даних.";
+                return;
+            }
+
+            questions = loadedQuestions;
+            answers = questions.Select(q => new Answer(q.Id, q.Correct)).ToList();
+        
+            Reset(); 
+        }
+        catch (JsonException)
+        {
+            // invalid JSON
+            errorMessage = "Неправильний формат або файл пошкоджено! Переконайтеся, що ви завантажуєте коректний файл із питаннями.";
+        }
+        catch (Exception ex)
+        {
+            // Unhandled errors
+            errorMessage = $"Сталася помилка при завантаженні файлу: {ex.Message}";
+        }
     }
-    
+
     private async Task UploadAnswers(InputFileChangeEventArgs args)
     {
-        var file = args.File;
-        
-        using var stream = file.OpenReadStream();
-        using var reader = new StreamReader(stream);
-        
-        var json = await reader.ReadToEndAsync();
-        
-        answers = JsonSerializer.Deserialize<List<Answer>>(json) ?? new List<Answer>();
+        errorMessage = null;
 
-        if (answers.Count == 0)
+        try
         {
-            Reset();
+            var file = args.File;
+
+            using var stream = file.OpenReadStream();
+            using var reader = new StreamReader(stream);
+
+            var json = await reader.ReadToEndAsync();
+
+            answers = JsonSerializer.Deserialize<List<Answer>>(json) ?? new List<Answer>();
+
+            if (answers.Count == 0)
+            {
+                Reset();
+            }
+            else
+            {
+                EvaluateAnswers();
+            }
         }
-        else
+        catch (JsonException)
         {
-            EvaluateAnswers();
+            // invalid JSON
+            errorMessage = "Неправильний формат або файл пошкоджено! Переконайтеся, що ви завантажуєте коректний файл із відповідями.";
+        }
+        catch (Exception ex)
+        {
+            // Unhandled errors
+            errorMessage = $"Сталася помилка при завантаженні файлу: {ex.Message}";
         }
     }
 
