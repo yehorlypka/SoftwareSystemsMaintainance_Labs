@@ -1,0 +1,252 @@
+﻿@page "/"
+@using System.Text.Json
+@using SoftwareSystemsMaintainance_Lab1.Components.Models
+@inject IJSRuntime JS
+
+<PageTitle>Home</PageTitle>
+
+<h3>Оцінка компетентності експерта</h3>
+
+<div class="container mx-2">
+    <label class="btn btn-primary">
+        Завантажте файл із питаннями
+        <InputFile accept=".json" OnChange="UploadQuestions" class="d-none" />
+    </label>
+    Або
+    <label class="btn btn-primary">
+        Завантажте файл із відповідями для перегляду оцінки
+        <InputFile accept=".json" OnChange="UploadAnswers" class="d-none" />
+    </label>
+</div>
+
+
+<div class="mx-2">
+    @if (!isSubmitted)
+    {
+        @if (questions == null)
+        {
+            <div class="container mx-2">
+                <p><em>Файл із питаннями не завантажено</em></p>
+            </div>
+
+        }
+        else
+        {
+            <div class="container mx-2">
+                <br/>
+                <h3>Кількість питань: @questions.Count</h3><br/>
+                @for (int i = 0; i < questions.Count; i++)
+                {
+                    int i2 = i;
+                    <QuestionNumeric
+                        @rendermode="InteractiveServer"
+                        QuestionData="@questions[i2]"
+                        AnswerData="@answers[i2]"
+                        OnInputChanged="StateHasChanged"/>
+                }
+            </div>
+            <div class="mt-4 mb-5">
+                <button class="btn btn-lg btn-success w-100"
+                        disabled="@(!AreAllAnswered)"
+                        @onclick="EvaluateAnswers">
+                    Завершити та розрахувати результати
+                </button>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="container mx-2">
+            <h1 class="text-dark-emphasis">Результати оцінювання</h1>
+            
+            <div class="table-responsive shadow-sm rounded">
+                <table class="table table-hover table-bordered table-striped align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th scope="col" class="text-center">№ Питання</th>
+                            <th scope="col">Правильна відповідь</th>
+                            <th scope="col">Надана відповідь</th>
+                            <th scope="col" class="text-center">Бал</th>
+                            <th scope="col" class="text-center">Похибка</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var answer in answers)
+                        {
+                            <tr>
+                                <td class="text-center fw-bold">@answer.Id</td>
+                                <td>@answer.Correct</td>
+                                <td>@answer.Value</td>
+                                <td class="text-center">@answer.Score.ToString("F3")</td>
+                                <td class="text-center">
+                                    @{
+                                        double absError = Math.Abs(answer.Error);
+                                        absError = Math.Max(0, Math.Min(1, absError)); 
+                                        int hue = (int)((1.0 - absError) * 120);
+                                        string colorStyle = $"color: hsl({hue}, 90%, 45%);";
+                                    }
+                                    <span style="@colorStyle" class="fw-bold">@answer.Error.ToString("F3")</span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="card mt-4 shadow-sm border-primary">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Загальні підсумки експерта</h4>
+                </div>
+                <div class="card-body fs-5">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Сумарний бал:</strong> @totalScore.ToString("F2") / @answers.Count</p>
+                            <p><strong>Середній бал за питання:</strong> @averageScore.ToString("F3")</p>
+                            <p><strong>Оцінка балів:</strong> @LinguisticScore()</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Середня похибка (Зміщеність):</strong> @averageError.ToString("F3")</p>
+                            <p><strong>Оцінка упередженості (Зміщеності):</strong> @LinguisticError()</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                @* <button class="btn btn-outline-primary mt-4 mb-5" @onclick="Reset"> *@
+                @*     <i class="bi bi-arrow-repeat"></i> Повернутися до питань *@
+                @* </button> *@
+                
+                <button class="btn btn-outline-primary mt-4 mb-5" @onclick="SaveAnswers">
+                    <i class="bi bi-save"></i> Зберегти відповіді
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+
+
+
+@code
+{
+    private List<Question>? questions;
+    private List<Answer>? answers;
+    
+    private bool isSubmitted = false;
+    private double totalScore = 0;
+    private double averageScore = 0;
+    private double averageError = 0;
+    
+    private bool AreAllAnswered => answers != null && answers.All(a => a.Value.HasValue);
+    
+
+    private async Task UploadQuestions(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+
+        using var stream = file.OpenReadStream();
+        using var reader = new StreamReader(stream);
+
+        var json = await reader.ReadToEndAsync();
+
+        questions = JsonSerializer.Deserialize<List<Question>>(json) ?? new List<Question>();
+        answers = questions.Select(q => new Answer(q.Id, q.Correct)).ToList();
+        
+        Reset();
+    }
+    
+    private async Task UploadAnswers(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        
+        using var stream = file.OpenReadStream();
+        using var reader = new StreamReader(stream);
+        
+        var json = await reader.ReadToEndAsync();
+        
+        answers = JsonSerializer.Deserialize<List<Answer>>(json) ?? new List<Answer>();
+
+        if (answers.Count == 0)
+        {
+            Reset();
+        }
+        else
+        {
+            EvaluateAnswers();
+        }
+    }
+
+    private async Task SaveAnswers()
+    {
+        if (answers == null || !answers.Any())
+            return;
+
+        // Налаштовуємо красиве форматування JSON (з відступами)
+        var options = new JsonSerializerOptions { WriteIndented = true };
+    
+        // Перетворюємо список об'єктів Answer у рядок JSON
+        var jsonString = JsonSerializer.Serialize(answers, options);
+
+        // Генеруємо ім'я файлу з поточною датою, щоб вони не перезаписувались
+        string fileName = $"expert_answers_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+
+        // Викликаємо JavaScript для завантаження файлу в браузері
+        await JS.InvokeVoidAsync("downloadFileFromText", fileName, jsonString);
+    }
+
+    private void EvaluateAnswers()
+    {
+        if (answers != null && answers.Any())
+        {
+            totalScore = answers.Sum(a => a.Score);
+            averageScore = answers.Average(a => a.Score);
+            averageError = answers.Average(a => a.Error);
+            
+            isSubmitted = true;
+        }
+    }
+    
+    private void Reset()
+    {
+        isSubmitted = false;
+        totalScore = 0;
+        averageScore = 0;
+        averageError = 0;
+    }
+
+    private string LinguisticScore()
+    {
+        if (averageScore < 0.5)
+            return "Ваш експерт не є експертом";
+        if (averageScore < 0.75)
+            return "Відповіді експерта значно відрізняються від правильних";
+        if (averageScore < 0.9)
+            return "Відповіді експерта дещо відрізняються від правильних";
+        if (averageScore < 0.95)
+            return "Відповіді експерта майже не відрізняються від правильних"; 
+        return "Відповіді експерта максимально правильні";
+    }
+
+    private string LinguisticError()
+    {
+        var absErr = Math.Abs(averageError);
+        if (absErr > 0.5)
+            return "Ваш експерт не є експертом";
+
+        if (absErr < 0.05)
+            return "Експерт неупереджений: немає систематичного заниження/завищення оцінок";
+        
+        var res = "Виявлено ";
+
+        if (absErr < 0.1)
+            res += "незначну упередженість: експерт незначно ";
+        else if (absErr < 0.15)
+            res += "помірну упередженість: експерт дещо ";
+        else
+            res += "значну упередженість: експерт значною мірою ";
+
+        res += Math.Sign(averageError) < 0 ? "занижує відповіді" : "завищує відповіді";
+        return res;
+    }
+}

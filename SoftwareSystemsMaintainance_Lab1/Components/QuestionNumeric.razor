@@ -1,0 +1,39 @@
+@using SoftwareSystemsMaintainance_Lab1.Components.Models
+
+<div class="card mb-3 shadow-sm">
+    <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">Запитання @QuestionData?.Id</h5>
+    </div>
+    <div class="card-body">
+        <p class="card-text fs-5">@QuestionData?.QuestionText</p>
+
+        <div class="input-group mt-4">
+            <input type="number" 
+                   class="form-control" 
+                   placeholder="Введіть відповідь (ціле число)..." 
+                   @bind="AnswerData.Value" 
+                   @bind:event="oninput"
+                   @bind:after="NotifyParent" />
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public Question QuestionData { get; set; }
+
+    [Parameter]
+    public Answer AnswerData { get; set; }
+
+    [Parameter]
+    public EventCallback OnInputChanged { get; set; }
+
+    private async Task NotifyParent()
+    {
+        // Triggers the parent to update its UI state
+        if (OnInputChanged.HasDelegate)
+        {
+            await OnInputChanged.InvokeAsync();
+        }
+    }
+}
