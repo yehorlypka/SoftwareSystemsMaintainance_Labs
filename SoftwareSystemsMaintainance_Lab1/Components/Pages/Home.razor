@@ -12,11 +12,14 @@
         Завантажте файл із питаннями
         <InputFile accept=".json" OnChange="UploadQuestions" class="d-none" />
     </label>
-    Або
     <label class="btn btn-primary">
         Завантажте файл із відповідями для перегляду оцінки
         <InputFile accept=".json" OnChange="UploadAnswers" class="d-none" />
     </label>
+    @if (!isEditorMode)
+    {
+        <button class="btn btn-primary mx-1" @onclick="EnableEditorMode">Створити набір питань</button>
+    }
     
     @if (!string.IsNullOrEmpty(errorMessage))
     {
@@ -31,14 +34,64 @@
 </div>
 
 
+@if (isEditorMode)
+{
+    <div class="container mx-2 rounded">
+        <h3>🔧 Редактор набору питань</h3>
+        <p class="text-muted">Створіть свій набір питань та завантажте його як JSON-файл.</p>
+
+        @foreach (var q in newQuestions.Select((value, index) => new { value, index }))
+        {
+            <div class="card mb-3 border-start border-primary border-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5>Питання №@(q.index + 1)</h5>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => RemoveQuestion(q.value)">
+                            Видалити
+                        </button>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-9 mb-2">
+                            <label class="form-label">Текст питання</label>
+                            <input type="text" class="form-control" @bind="q.value.QuestionText" placeholder="Текст питання..." />
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <label class="form-label">Правильна відповідь</label>
+                            <input type="number" class="form-control" @bind="q.value.Correct" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+        
+        <div class="mb-3">
+            <button class="btn btn-outline-primary" @onclick="AddQuestion">
+                <i class="bi bi-plus-lg"></i> Додати питання
+            </button>
+        </div>
+
+        @if (newQuestions.Any())
+        {
+            <div class="mt-4 pt-3 border-top">
+                <button class="btn btn-success btn-lg" disabled="@(newQuestions.Any(q => string.IsNullOrWhiteSpace(q.QuestionText)))"  @onclick="DownloadCreatedJson">
+                    💾 Завантажити готовий JSON
+                </button>
+                <button class="btn btn-link text-secondary" @onclick="() => isEditorMode = false">Скасувати</button>
+            </div>
+        }
+    </div>
+}
+
+
 <div class="mx-2">
     @if (!isSubmitted)
     {
         @if (questions == null)
         {
-            <div class="container mx-2">
-                <p><em>Файл із питаннями не завантажено</em></p>
-            </div>
+            @* <div class="container mx-2"> *@
+            @*     <p><em>Файл із питаннями не завантажено</em></p> *@
+            @* </div> *@
 
         }
         else
@@ -65,7 +118,7 @@
             </div>
         }
     }
-    else
+    else if(!isEditorMode)
     {
         <div class="container mx-2">
             <h1 class="text-dark-emphasis">Результати оцінювання</h1>
@@ -143,6 +196,9 @@
 {
     private List<Question>? questions;
     private List<Answer>? answers;
+    
+    bool isEditorMode = false;
+    List<Question> newQuestions = new();
     
     private bool isSubmitted = false;
     private double totalScore = 0;
@@ -299,5 +355,45 @@
 
         res += Math.Sign(averageError) < 0 ? "занижує відповіді" : "завищує відповіді";
         return res;
+    }
+    
+    
+    private void EnableEditorMode()
+    {
+        newQuestions = new List<Question> { new Question { Id = 1 } };
+        isEditorMode = true;
+    }
+
+    private void AddQuestion()
+    {
+        int nextId = newQuestions.Any() ? newQuestions.Max(q => q.Id) + 1 : 1;
+        newQuestions.Add(new Question { Id = nextId });
+    }
+
+    private void RemoveQuestion(Question q)
+    {
+        newQuestions.Remove(q);
+        // Опціонально: перепризначити Id, щоб вони йшли по порядку
+        for (int i = 0; i < newQuestions.Count; i++)
+        {
+            newQuestions[i].Id = i + 1;
+        }
+    }
+
+    private async Task DownloadCreatedJson()
+    {
+        // Валідація: перевіряємо, чи всі питання заповнені
+        if (newQuestions.Any(q => string.IsNullOrWhiteSpace(q.QuestionText)))
+        {
+            // Тут можна додати виклик JS Alert або власне сповіщення
+            return;
+        }
+
+        var json = System.Text.Json.JsonSerializer.Serialize(newQuestions, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+    
+        string fileName = $"questions_{DateTime.Now:yyyyMMdd_HHmm}.json";
+    
+        // Використовуємо ваш існуючий JS скрипт для завантаження
+        await JS.InvokeVoidAsync("downloadFileFromText", fileName, json);
     }
 }
